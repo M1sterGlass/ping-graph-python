@@ -1,2 +1,2 @@
-# ping-latency-graph-python
+# ping-graph-python
 Ping latency on a graph in Python
