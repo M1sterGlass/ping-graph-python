@@ -2,22 +2,27 @@
 
 __author__      = "M1sterGlass"
 __copyright__   = "Copyright 2023, Planet Earth"
-__version__     = "1.0.0"
+__version__     = "1.0.1"
 
 import argparse
 import datetime as dt
+import time
+import logging
 import matplotlib as mpl
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 from pythonping import ping
 from statistics import mean
 
-# Graph configuration
+LOGGER = logging.getLogger(__name__)
+
+# Matplotlib Graph configuration
+GUI_MODE = False
 DARK_COLOR = 'black'
 MEDIUM_COLOR = 'grey'
 LIGHT_COLOR = 'white'
-PRI_COLOR = 'green'
-SEC_COLOR = 'white'
+PRIMARY_COLOR = 'green'
+SECONDARY_COLOR = 'white'
 PRI_LINE_FORMAT = '+-'
 SEC_LINE_FORMAT = ':'
 mpl.rcParams['toolbar'] = 'None'
@@ -36,6 +41,7 @@ mpl.rcParams['grid.linewidth'] = '0.5'
 mpl.rcParams['lines.linewidth'] = '1'
 mpl.rcParams['legend.loc'] = 'upper left'
 
+
 class Pinger:
     TIMEOUT = 2000  # 2000 default timeout (in ms)
 
@@ -50,86 +56,117 @@ class Pinger:
         except Exception as e:
             rtt = self.timeout
 
+        # if timeout change rtt to 0
+        if rtt >= self.timeout:
+            rtt = 0
+
         return rtt
 
-class PingPlotter:
+class Plotter:
     # Defaults
-    MAXPOINTS = 1000
-    INTERVAL = 500
+    MAXPOINTS = 150
+    SECONDS = 30
+    INTERVAL = 200
 
-    def __init__(self, pinger: Pinger, maxpoints: int = MAXPOINTS, interval: int = INTERVAL):
+    def __init__(self, pinger: Pinger, seconds: int = SECONDS, interval: int = INTERVAL):
         self.pinger = pinger
-        self.maxpoints = maxpoints
+        self.seconds = seconds
         self.interval = interval
-        # Init data points
-
+        self.maxpoints = int(seconds / (interval / 1000))
         self.timestamps = []
         self.rtts = []
         self.rtts_avg = []
-
-        # Init plot
+        self.rtts_seconds = 0
+        self.rtts_timeouts = 0
         self.fig, self.ax = plt.subplots()
-  
-   
+        self.first_run = True
+
+    def wait_for_connection(self):
+        # Retry if first run is a timeout
+        if self.first_run is True:
+            while self.rtt == 0:
+                LOGGER.warning("Waiting for connection...")
+                time.sleep(1)
+                self.rtt = self.pinger.call()
+            LOGGER.warning("Connection ok!")
+            self.first_run = False
+
+    def append_list(self, listname, value):
+        result = listname.append(value)
+        result = listname[-self.maxpoints:]
+        return result
+
+    def calculate_runtime(self):
+        self.rtts_seconds = (self.timestamps[-1] - self.timestamps[0]).total_seconds()
+        
+        # if graph seconds less then configured seconds
+        if self.rtts_seconds < self.seconds:
+            self.maxpoints = len(self.rtts) + 1
+
+        if self.seconds <= self.rtts_seconds <= self.seconds + 1:
+            pass
+        
+        # if graph seconds exceeds configured seconds+1 
+        if self.rtts_seconds > self.seconds + 1:
+            if self.maxpoints > self.seconds / 2:
+                self.maxpoints = len(self.rtts) - 1
+
+        # print(f'run {self.rtts_seconds:.2f} sec {self.seconds} - max {self.maxpoints} pts {len(self.rtts)} tos {self.rtts_timeouts}')
+
     def __update_data(self):
-        rtt = self.pinger.call()
+        LOGGER.info("Update data")
+        self.rtt = self.pinger.call()
+        self.wait_for_connection()
 
-        # Timestamps
-        self.timestamps.append(dt.datetime.now())
-        self.timestamps = self.timestamps[-self.maxpoints:]
+        # Add timestamp to list
+        self.timestamps = self.append_list(self.timestamps, dt.datetime.now())
+        
+        # Add rtt to list
+        self.rtts = self.append_list(self.rtts, self.rtt)
 
-        # RTT, if timeout, replace rtt with 1
-        if rtt >= self.pinger.TIMEOUT:
-            rtt = 1
-        self.rtts.append(rtt)
-        self.rtts = self.rtts[-self.maxpoints:]
+        # Average from rtts list, excluding timeouts where rtt=0
+        # 
+        if self.rtt == 0:
+            self.rtt_avg = self.rtts_avg[-1]
+        else:
+            self.rtt_avg = round(mean(list(filter(lambda num: num != 0, self.rtts))), 2)
 
-        # Average from rtts list, excluding timeouts where rtt=1 
-        self.rtt_current_avg = round(mean(list(filter(lambda num: num != 1, self.rtts))), 2)
-        self.rtts_avg.append(self.rtt_current_avg)
-        self.rtts_avg = self.rtts_avg[-self.maxpoints:]
+        self.rtts_avg = self.append_list(self.rtts_avg, self.rtt_avg)
 
         # Runtime is seconds
-        self.rtts_seconds = self.interval * len(self.rtts) / 1000
+        self.calculate_runtime()
 
-        # Number of timeouts
-        self.rtts_timeouts = self.rtts.count(1)
+        # Number of timeouts, count rtts with 0
+        self.rtts_timeouts = self.rtts.count(0)
 
-        # print(f'''{
-        #     self.timestamps[-1]} \t
-        #     rtt : {rtt} \t
-        #     avg : {self.rtt_current_avg} \t
-        #     to  : {self.rtts_timeouts}'''
-        # )
-
+        # print(f'{self.timestamps[0]} {self.timestamps[-1]} {self.rtts_seconds} {self.maxpoints} {len(self.rtts)} rtt {self.rtt:.2f} avg {self.rtt_avg:.2f} to {self.rtts_timeouts:.2f}')
 
     def __render_frame(self, i: int):
         self.__update_data()
-        # Clear
+        # Plot clear
         self.ax.clear()
 
         # Plot rtts
         self.ax.plot_date(
             self.timestamps,
             self.rtts,
-            fmt=PRI_LINE_FORMAT,
-            color = PRI_COLOR,
+            fmt = PRI_LINE_FORMAT,
+            color = PRIMARY_COLOR,
             label = self.pinger.host
-            )
+        )
+        
         # Plot average
         self.ax.plot_date(
             self.timestamps,
             self.rtts_avg,
-            fmt=SEC_LINE_FORMAT,
-            color = SEC_COLOR,
+            fmt = SEC_LINE_FORMAT,
+            color = SECONDARY_COLOR,
             label = "Average"
-            )
+        )
 
         # Plot texts
-        main_title = f'[ Average {self.rtt_current_avg:.2f} ms ] [ Request timeouts {self.rtts_timeouts} ]'
-        plt.suptitle(main_title)
-        sub_title = f'({self.rtts_seconds:.2f} seconds)'
-        plt.title((sub_title))
+        plt.suptitle(f'[ Average {self.rtt_avg:.2f} ms ] [ Timeouts {self.rtts_timeouts} ]')
+        plt.title(f'({self.rtts_seconds:.2f} seconds / {len(self.rtts)} points) ')
         plt.ylabel('Round trip (milli-seconds)')
         plt.legend([self.pinger.host, 'Average'])
 
@@ -140,47 +177,49 @@ class PingPlotter:
             fig=self.fig,
             func=self.__render_frame,
             interval=self.interval
-            )
+        )
         plt.show()
 
 
-if __name__ == "__main__":
-    # Init parser and adding optional arguments
+class ArgumentReader:
+   # Init parser and adding arguments
     parser = argparse.ArgumentParser()
+    
     parser.add_argument(
-        "-t", dest='target', default='1.1.1.1', type=str,
+        "-t",
+        dest='target',
+        default='1.1.1.1', type=str,
         help = "Target hostname or IP address, default is [1.1.1.1]"
-        )
+    )
+    
     parser.add_argument(
-        "-s", dest='seconds', default=60, type=int,
+        "-s",
+        dest='seconds',
+        default=10, type=int,
         help = "Number of seconds to display, default is [60] seconds"
-        )
+    )
     parser.add_argument(
-        "-i", dest='interval', default=200, type=int,
+        "-i",
+        dest='interval',
+        default=200, type=int,
         help = "Ping interval in milli-seconds, default is [200] ms"
-        )
+    )
+    
     parser.add_argument(
-        "-v", action='version', version='%(prog)s {version}'.format(version=__version__),
+        "-v",
+        action='version',
+        version='%(prog)s {version}'.format(version=__version__),
         help = "Show version"
-        )
+    )
+    
+    # Read arguments from commandline
+    arguments = parser.parse_args()
 
-   # Read arguments from command line
-    args = parser.parse_args()
-    if args.target:
-        print(f'''Target: \t {args.target}''')
-        ping_target = args.target
-    if args.seconds:
-        print(f'''Seconds: \t {args.seconds}''')
-        ping_seconds = args.seconds
-    if args.interval:
-        print(f'''Interval: \t {args.interval}''')
-        ping_interval = args.interval
+    if not arguments.target:
+        gui_mode = True
 
-    # calculate maximum plot points
-    ping_maxpoints = int(ping_seconds * 1000 / ping_interval)
-
-    # Run
-    pinger = Pinger(ping_target)
-    plotter = PingPlotter(pinger, maxpoints=ping_maxpoints, interval=ping_interval)
+if __name__ == "__main__":
+    ar = ArgumentReader()
+    pinger = Pinger(ar.arguments.target)
+    plotter = Plotter(pinger, seconds=ar.arguments.seconds, interval=ar.arguments.interval)
     plotter.start()
-
