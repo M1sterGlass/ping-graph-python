@@ -2,7 +2,7 @@
 
 __author__      = "M1sterGlass"
 __copyright__   = "Copyright 2023, Planet Earth"
-__version__     = "1.0.1"
+__version__     = "1.0.2"
 
 import argparse
 import datetime as dt
@@ -14,33 +14,13 @@ import matplotlib.pyplot as plt
 from pythonping import ping
 from statistics import mean
 
+# Logging
+FORMAT = '%(asctime)s | %(levelname)-8s | %(message)s'
+logging.basicConfig(format=FORMAT)
 LOGGER = logging.getLogger(__name__)
-
-# Matplotlib Graph configuration
+LOGGER.setLevel(level=logging.INFO)
+# Mode
 GUI_MODE = False
-DARK_COLOR = 'black'
-MEDIUM_COLOR = 'grey'
-LIGHT_COLOR = 'white'
-PRIMARY_COLOR = 'green'
-SECONDARY_COLOR = 'white'
-PRI_LINE_FORMAT = '+-'
-SEC_LINE_FORMAT = ':'
-mpl.rcParams['toolbar'] = 'None'
-mpl.rcParams['figure.figsize'] = [10.0, 5.5]
-mpl.rcParams['font.size'] = '8'
-mpl.rcParams['figure.facecolor'] = DARK_COLOR
-mpl.rcParams['text.color'] = LIGHT_COLOR
-mpl.rcParams['axes.facecolor'] = DARK_COLOR
-mpl.rcParams['axes.labelcolor'] = LIGHT_COLOR
-mpl.rcParams['xtick.color'] = LIGHT_COLOR
-mpl.rcParams['ytick.color'] = LIGHT_COLOR
-mpl.rcParams['grid.color'] = MEDIUM_COLOR
-mpl.rcParams['axes.grid'] = True
-mpl.rcParams['grid.linestyle'] = ':'
-mpl.rcParams['grid.linewidth'] = '0.5'
-mpl.rcParams['lines.linewidth'] = '1'
-mpl.rcParams['legend.loc'] = 'upper left'
-
 
 class Pinger:
     TIMEOUT = 2000  # 2000 default timeout (in ms)
@@ -59,20 +39,43 @@ class Pinger:
         # if timeout change rtt to 0
         if rtt >= self.timeout:
             rtt = 0
-
         return rtt
 
 class Plotter:
     # Defaults
-    MAXPOINTS = 150
     SECONDS = 30
     INTERVAL = 200
+    MAXPOINTS = 150
+
+    # Matplotlib Graph configuration
+    DARK_COLOR = 'black'
+    MEDIUM_COLOR = 'grey'
+    LIGHT_COLOR = 'white'
+    PRIMARY_COLOR = 'green'
+    SECONDARY_COLOR = 'white'
+    PRI_LINE_FORMAT = '+-'
+    SEC_LINE_FORMAT = ':'
+    mpl.rcParams['toolbar'] = 'None'
+    mpl.rcParams['figure.figsize'] = [10.0, 5.5]
+    mpl.rcParams['font.size'] = '8'
+    mpl.rcParams['figure.facecolor'] = DARK_COLOR
+    mpl.rcParams['text.color'] = LIGHT_COLOR
+    mpl.rcParams['axes.facecolor'] = DARK_COLOR
+    mpl.rcParams['axes.labelcolor'] = LIGHT_COLOR
+    mpl.rcParams['xtick.color'] = LIGHT_COLOR
+    mpl.rcParams['ytick.color'] = LIGHT_COLOR
+    mpl.rcParams['grid.color'] = MEDIUM_COLOR
+    mpl.rcParams['axes.grid'] = True
+    mpl.rcParams['grid.linestyle'] = ':'
+    mpl.rcParams['grid.linewidth'] = '0.5'
+    mpl.rcParams['lines.linewidth'] = '1'
+    mpl.rcParams['legend.loc'] = 'upper left'
 
     def __init__(self, pinger: Pinger, seconds: int = SECONDS, interval: int = INTERVAL):
         self.pinger = pinger
         self.seconds = seconds
         self.interval = interval
-        self.maxpoints = int(seconds / (interval / 1000))
+        self.maxpoints = self.MAXPOINTS #int(seconds / (interval / 1000))
         self.timestamps = []
         self.rtts = []
         self.rtts_avg = []
@@ -88,7 +91,7 @@ class Plotter:
                 LOGGER.warning("Waiting for connection...")
                 time.sleep(1)
                 self.rtt = self.pinger.call()
-            LOGGER.warning("Connection ok!")
+            LOGGER.info("Connection ok")
             self.first_run = False
 
     def append_list(self, listname, value):
@@ -98,23 +101,25 @@ class Plotter:
 
     def calculate_runtime(self):
         self.rtts_seconds = (self.timestamps[-1] - self.timestamps[0]).total_seconds()
-        
-        # if graph seconds less then configured seconds
+
+        # if graph seconds less then argument seconds
         if self.rtts_seconds < self.seconds:
             self.maxpoints = len(self.rtts) + 1
-
-        if self.seconds <= self.rtts_seconds <= self.seconds + 1:
-            pass
+            LOGGER.debug(f'maxpoint adding')
         
-        # if graph seconds exceeds configured seconds+1 
+        if self.seconds <= self.rtts_seconds <= self.seconds + 1:
+            LOGGER.debug(f'maxpoint do nothing')
+       
+        # if graph seconds exceeds argument seconds+1 
         if self.rtts_seconds > self.seconds + 1:
             if self.maxpoints > self.seconds / 2:
                 self.maxpoints = len(self.rtts) - 1
+                LOGGER.debug(f'maxpoint subtract')
 
-        # print(f'run {self.rtts_seconds:.2f} sec {self.seconds} - max {self.maxpoints} pts {len(self.rtts)} tos {self.rtts_timeouts}')
+        LOGGER.debug(f'run {self.rtts_seconds:.2f} sec {self.seconds:.2f} max {self.maxpoints}')
 
-    def __update_data(self):
-        LOGGER.info("Update data")
+    def update_data(self):
+        # Ping target
         self.rtt = self.pinger.call()
         self.wait_for_connection()
 
@@ -125,12 +130,7 @@ class Plotter:
         self.rtts = self.append_list(self.rtts, self.rtt)
 
         # Average from rtts list, excluding timeouts where rtt=0
-        # 
-        if self.rtt == 0:
-            self.rtt_avg = self.rtts_avg[-1]
-        else:
-            self.rtt_avg = round(mean(list(filter(lambda num: num != 0, self.rtts))), 2)
-
+        self.rtt_avg = round(mean(list(filter(lambda x: x != 0, self.rtts))), 2)
         self.rtts_avg = self.append_list(self.rtts_avg, self.rtt_avg)
 
         # Runtime is seconds
@@ -139,10 +139,11 @@ class Plotter:
         # Number of timeouts, count rtts with 0
         self.rtts_timeouts = self.rtts.count(0)
 
-        # print(f'{self.timestamps[0]} {self.timestamps[-1]} {self.rtts_seconds} {self.maxpoints} {len(self.rtts)} rtt {self.rtt:.2f} avg {self.rtt_avg:.2f} to {self.rtts_timeouts:.2f}')
+        LOGGER.debug(f'rtt {self.rtt:.2f} avg {self.rtt_avg:.2f} tos {self.rtts_timeouts:.2f} pts {len(self.rtts)}')
 
-    def __render_frame(self, i: int):
-        self.__update_data()
+
+    def render_frame(self, i: int):
+        self.update_data()
         # Plot clear
         self.ax.clear()
 
@@ -150,8 +151,8 @@ class Plotter:
         self.ax.plot_date(
             self.timestamps,
             self.rtts,
-            fmt = PRI_LINE_FORMAT,
-            color = PRIMARY_COLOR,
+            fmt = self.PRI_LINE_FORMAT,
+            color = self.PRIMARY_COLOR,
             label = self.pinger.host
         )
         
@@ -159,25 +160,31 @@ class Plotter:
         self.ax.plot_date(
             self.timestamps,
             self.rtts_avg,
-            fmt = SEC_LINE_FORMAT,
-            color = SECONDARY_COLOR,
+            fmt = self.SEC_LINE_FORMAT,
+            color = self.SECONDARY_COLOR,
             label = "Average"
         )
 
         # Plot texts
         plt.suptitle(f'[ Average {self.rtt_avg:.2f} ms ] [ Timeouts {self.rtts_timeouts} ]')
         plt.title(f'({self.rtts_seconds:.2f} seconds / {len(self.rtts)} points) ')
-        plt.ylabel('Round trip (milli-seconds)')
+        plt.ylabel(f'Round trip (milli-seconds)')
         plt.legend([self.pinger.host, 'Average'])
 
+    def stop(self, handle):
+        LOGGER.info(f'Stopped')
+        plt.close('all')
 
     def start(self):
+        LOGGER.info(f'Started')
         # Assign to variable to avoid garbage collection.
         a = animation.FuncAnimation(
             fig=self.fig,
-            func=self.__render_frame,
+            func=self.render_frame,
             interval=self.interval
         )
+        # Close all plots on exit
+        self.fig.canvas.mpl_connect("close_event", self.stop)
         plt.show()
 
 
