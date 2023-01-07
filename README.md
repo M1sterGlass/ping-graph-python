@@ -14,4 +14,7 @@ options:
   
 ```
 ## Screenshot
-![ping-graph-screenshot](https://user-images.githubusercontent.com/56590900/210175127-8c407391-a9df-4b82-8ec5-1d803d262666.jpg)
+
+![Screenshot_20230107_033202_resize](https://user-images.githubusercontent.com/56590900/211141532-240395ed-2cf7-4e63-a207-3bf4183206b4.png)
+
+![Screenshot_20230107_032059](https://user-images.githubusercontent.com/56590900/211141408-d6431cac-cea0-4432-b6b8-057e2fb649fb.png)
